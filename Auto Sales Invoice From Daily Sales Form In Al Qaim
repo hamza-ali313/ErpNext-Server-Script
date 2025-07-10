@@ -1,0 +1,88 @@
+
+doc = frappe.get_doc("Daily Sales", frappe.form_dict.docname)
+posting_date = doc.posting_date
+warehouse = doc.warehouse
+
+# Group child rows by customer
+customer_map = {}
+
+for row in doc.get("transactions"):
+    customer = row.customer
+    if customer not in customer_map:
+        customer_map[customer] = []
+
+    customer_map[customer].append(row)
+
+for customer, rows in customer_map.items():
+    invoice = frappe.new_doc("Sales Invoice")
+    invoice.customer = customer
+    invoice.posting_date = posting_date
+    invoice.set_warehouse = warehouse
+    invoice.set_posting_time = 1
+
+    for row in rows:
+        if row.category1_qty:
+            invoice.append("items", {
+                "item_code": "GAS 11.8",
+                "qty": row.category1_qty,
+                "rate": row.rate,
+            })
+        if row.category2_qty:
+            invoice.append("items", {
+                "item_code": "GAS 35",
+                "qty": row.category2_qty,
+                "rate": row.category2_rate,
+            })
+        if row.category3_qty:
+            invoice.append("items", {
+                "item_code": "GAS 45.4",
+                "qty": row.category3_qty,
+                "rate": row.category3_rate,
+            })
+
+    invoice.insert()
+    invoice.save()
+
+frappe.msgprint("Sales Invoices created successfully.")
+
+
+
+// Client script needed to call that API from Front end
+
+
+frappe.ui.form.on('Daily Sales', {
+    refresh: function(frm) {
+        frm.add_custom_button('Create Invoices', () => {
+            if(!frm.doc.__unsaved){
+                frappe.call({
+                    method: 'create_sales_invoices',
+                    args: {
+                        docname: frm.doc.name
+                    },
+                    callback: function(r) {
+                        if (!r.exc) {
+                            frappe.msgprint(__('Sales Invoices created successfully'));
+                            frappe.set_route("List", "Sales Invoice", "List");
+                        }
+                    }
+                });
+            }
+            else{
+                frm.save().then(() => {
+                     frappe.call({
+                    method: 'create_sales_invoices',
+                    args: {
+                        docname: frm.doc.name
+                    },
+                    callback: function(r) {
+                        if (!r.exc) {
+                            frappe.msgprint(__('Sales Invoices created successfully'));
+                            frappe.set_route("List", "Sales Invoice", "List");
+                        }
+                    }
+                });
+                })
+            }
+        });
+    }
+});
