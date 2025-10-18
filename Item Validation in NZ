@@ -1,0 +1,19 @@
+# Check duplicates by item_name + custom_weight_type + custom_gram_per_piece (rounded to 3 decimals)
+if doc.item_name and doc.custom_weight_type and doc.custom_fancy and doc.custom_gram_per_piece is not None:
+    dup = frappe.db.sql("""
+        SELECT name
+        FROM `tabItem`
+        WHERE item_name = %s
+          AND custom_weight_type = %s
+          AND custom_fancy = %s
+          AND ROUND(IFNULL(custom_gram_per_piece, 0), 6) = ROUND(%s, 6)
+        LIMIT 1
+    """, (doc.item_name, doc.custom_weight_type, doc.custom_fancy, doc.custom_gram_per_piece))
+
+    if dup:
+        dup_name = dup[0][0]
+        if dup_name != doc.name:
+            frappe.throw(
+                f"An Item with the same Item Name, Quality weight (rounded to 3 decimals) "
+                f"and Weight Type already exists: {dup_name}"
+            )
