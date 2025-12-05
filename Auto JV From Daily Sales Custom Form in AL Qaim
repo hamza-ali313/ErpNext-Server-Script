@@ -1,0 +1,38 @@
+doc = frappe.get_doc("Daily Sales", frappe.form_dict.docname)
+posting_date = doc.date
+
+# Group child rows by supplier
+supplier_map = {}
+
+for sales in doc.get("transactions"):
+    supplier = sales.supplier
+    if supplier not in supplier_map:
+        supplier_map[supplier] = []
+    supplier_map[supplier].append(sales)
+
+for supplier, rows in supplier_map.items():
+    JV = frappe.new_doc("Journal Entry")
+    JV.voucher_type = "Journal Entry"
+    JV.posting_date = posting_date
+
+    for row in rows:
+        if row.supplier:
+            JV.append("accounts", {
+                "account": "Creditors - A",  # Liability account
+                "party_type": "Supplier",
+                "party": supplier,
+                "debit_in_account_currency": 0,
+                "credit_in_account_currency": row.total_hospitality,
+                "cost_center": row.cost_center,
+            })
+            JV.append("accounts", {
+                "account": f"{supplier} - A",  # Expense account for rent
+                "debit_in_account_currency": row.total_hospitality,
+                "credit_in_account_currency": 0,
+                "cost_center": row.cost_center,
+            })
+    
+    JV.insert()
+    JV.submit()
+
+frappe.msgprint("Journal Entries created successfully.")
