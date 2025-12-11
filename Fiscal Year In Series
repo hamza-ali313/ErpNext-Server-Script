@@ -1,0 +1,21 @@
+# Before Save - Sales Order
+
+# Use posting_date from the Sales Order
+posting_date = doc.transaction_date
+
+if posting_date:
+    # Find the fiscal year that includes this date
+    fy = frappe.db.get_value(
+        "Fiscal Year",
+        filters=[
+            ["year_start_date", "<=", posting_date],
+            ["year_end_date", ">=", posting_date]
+        ],
+        fieldname="name"
+    )
+    if fy:
+        
+        # Convert to short format, e.g., 2025-2026 -> 25-26
+        parts = fy.split("-")
+        if len(parts) == 2:
+            doc.fiscal_year_code = parts[0][-2:] + "-" + parts[1][-2:]
