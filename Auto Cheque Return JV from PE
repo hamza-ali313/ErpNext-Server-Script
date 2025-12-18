@@ -1,0 +1,86 @@
+payment_entry_name = frappe.form_dict.get("payment_entry_name")
+submit_je = frappe.form_dict.get("submit_je", "1")
+
+if not payment_entry_name:
+    frappe.throw("Payment Entry name is required")
+
+pe = frappe.get_doc("Payment Entry", payment_entry_name)
+
+if pe.docstatus != 1:
+    frappe.throw("Payment Entry must be submitted")
+
+if pe.payment_type != "Pay":
+    frappe.throw("Only Payment Type = Pay is supported")
+
+amount = pe.paid_amount or pe.amount or 0
+if amount <= 0:
+    frappe.throw("Invalid amount")
+
+paid_from = pe.paid_from
+paid_to = pe.paid_to
+
+if not paid_from or not paid_to:
+    frappe.throw("Paid From / Paid To missing")
+
+je = frappe.new_doc("Journal Entry")
+je.voucher_type = "Journal Entry"
+je.posting_date = frappe.utils.today() or pe.posting_date
+je.company = pe.company
+je.reference_type = "Payment Entry"
+je.reference_name = pe.name
+je.remark = f"Cheque Return for {pe.name}"
+
+# Set posting_month
+posting_date_obj = frappe.utils.getdate(je.posting_date)
+je.posting_month = posting_date_obj.month
+
+je.append("accounts", {
+    "account": paid_from,
+    "debit_in_account_currency": amount
+})
+
+je.append("accounts", {
+    "account": paid_to,
+    "party_type": "Supplier",
+    "party": pe.party,
+    "credit_in_account_currency": amount
+})
+
+je.insert(ignore_permissions=True)
+
+if submit_je == "1":
+    je.submit()
+
+frappe.response["message"] = je.name
+
+
+
+
+// Client script of button that will trigger this API
+
+frappe.ui.form.on('Payment Entry', {
+    refresh: function(frm) {
+        if (frm.doc && frm.doc.docstatus === 1) {
+            frm.add_custom_button(__('Create Cheque Return'), function() {
+                frappe.confirm(
+                    __('Create Cheque Return JE for {0}?', [frm.doc.name]),
+                    function() {
+                        frappe.call({
+                            method: "create_cheque_return",
+                            args: { payment_entry_name: frm.doc.name, submit_je: "1" },
+                            callback: function(r) {
+                                console.log(!r.exc)
+                                console.log(r.message)
+                                if (!r.exc) {
+                                    frappe.msgprint(__('Cheque Return JE created: {0}', [r.message]));
+                                    frappe.set_route('Form', 'Journal Entry', r.message);
+                                }
+                            }
+                        });
+                    }
+                );
+            }, __("Actions"));
+        }
+    }
+});
+
