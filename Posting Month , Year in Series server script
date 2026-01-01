@@ -1,0 +1,40 @@
+
+# Get posting month and year safely in Server Script
+if doc.posting_date:
+    # posting_date is string "YYYY-MM-DD"
+    posting_month = doc.posting_date[5:7]  # characters 6 and 7 -> MM
+    posting_year = int(doc.posting_date[0:4])  # characters 0-3 -> YYYY
+
+    doc.posting_month = posting_month
+    doc.posting_year = posting_year
+else:
+    doc.posting_month = ""
+    doc.posting_year = ""
+
+# ---- SAME AS your naming logic ----
+if doc.voucher_type == "Journal Entry":
+    doc.naming_series = "ACC-JV-.{posting_month}.-.{posting_year}.-.###"
+
+elif doc.voucher_type == "Bank Entry" and doc.custom_type == "Pay":
+    doc.naming_series = "ACC-JV-BP-.{posting_month}.-.{posting_year}.-.###"
+
+elif doc.voucher_type == "Cash Entry" and doc.custom_type == "Pay":
+    doc.naming_series = "ACC-JV-CP-.{posting_month}.-.{posting_year}.-.###"
+
+elif doc.voucher_type == "Bank Entry" and doc.custom_type == "Receive":
+    doc.naming_series = "ACC-JV-BR-.{posting_month}.-.{posting_year}.-.###"
+
+elif doc.voucher_type == "Cash Entry" and doc.custom_type == "Receive":
+    doc.naming_series = "ACC-JV-CR-.{posting_month}.-.{posting_year}.-.###"
+
+elif doc.voucher_type == "Opening Entry" and not doc.custom_type:
+    doc.naming_series = "ACC-JV-OE.-.###"
+
+elif doc.voucher_type == "Debit Note" and not doc.custom_type:
+    doc.naming_series = "ACC-JV-DN-.{posting_month}.-.{posting_year}.-.###"
+
+elif doc.voucher_type == "Credit Note" and not doc.custom_type:
+    doc.naming_series = "ACC-JV-CN-.{posting_month}.-.{posting_year}.-.###"
+
+else:
+    doc.naming_series = "ACC-JV-.{posting_month}.-.{posting_year}.-.###"
