@@ -1,0 +1,42 @@
+# Extract alpha part once
+alpha_part = (doc.order_no or "").rstrip("0123456789-")
+
+sku_map = {
+    "ETS": 1, "GBS": 2, "PRA": 3, "TND": 4,
+    "ROC": 5, "ETB": 6, "ETM": 7, "PTS": 8,
+    "FRS": 9, "FRF": 10, "FRV": 11, "DLP": 12
+}
+
+for row in doc.order_items:
+
+    sku = row.sku_no or ""
+    sku_prefix = sku[:3]
+
+    if sku_prefix not in sku_map:
+        sku_num = ''.join([c for c in sku if not c.isalpha()])
+        calculated_sku_part =  sku_num
+    else:
+        sku_rest = sku[3:]
+        sku_number = sku_map[sku_prefix]
+        calculated_sku_part = str(sku_number) + sku_rest
+
+    counter_part = doc.name.split("-")[-1]
+
+    # Avoid f-string in server script
+    if len(alpha_part) < 2:
+        batch_id = '0'+ alpha_part + calculated_sku_part + counter_part
+    else:
+        batch_id = alpha_part + calculated_sku_part + counter_part
+    frappe.msgprint(batch_id)
+    # Create Batch if not exists
+    if not frappe.db.exists("Batch", batch_id):
+
+        batch = frappe.new_doc("Batch")
+        batch.name = batch_id
+        batch.batch_id = batch_id
+        batch.item = row.item_code
+    
+        batch.insert(ignore_permissions=True)
+
+    # Assign to child row
+    row.batch_no = batch_id
