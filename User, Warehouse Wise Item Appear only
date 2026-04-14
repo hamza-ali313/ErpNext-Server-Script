@@ -1,0 +1,25 @@
+# Get current user
+user = frappe.session.user
+
+# Get allowed warehouses
+allowed_warehouses = frappe.get_all(
+    "User Permission",
+    filters={
+        "user": user,
+        "allow": "Warehouse"
+    },
+    pluck="for_value"
+)
+
+# If no restriction → allow all
+if not allowed_warehouses:
+    conditions = ""
+else:
+    warehouses = "', '".join(allowed_warehouses)
+
+    conditions = f"""
+        `tabItem`.name IN (
+            SELECT item_code FROM `tabBin`
+            WHERE warehouse IN ('{warehouses}')
+        )
+    """
