@@ -1,0 +1,271 @@
+/// Client Script For Fetch Invoices and Create Payment Buttons trggering the API endpoints
+
+frappe.ui.form.on('Daily Payment', {
+    refresh(frm) {
+        frm.add_custom_button('Fetch Invoices', () => {
+            if (!frm.doc.sales_person) {
+                frappe.msgprint("Please select Sales Person");
+                return;
+            }
+
+            frappe.call({
+                method: 'fetch_invoices',
+                args: {
+                    sales_person: frm.doc.sales_person,
+                    from_date: frm.doc.date,
+                },
+                callback: function(r) {
+
+                    // Clear existing rows
+                    frm.clear_table('multi_invoices');
+                    // console.log(r.message)
+                    (r.message || []).forEach(inv => {
+                        let row = frm.add_child('payments');
+                        
+                        row.sales_invoice = inv.invoice;
+                        row.customer = inv.customer;
+                        row.date = inv.posting_date;
+                        row.grand_total = inv.grand_total;
+                    });
+
+                    frm.refresh_field('payments');
+                }
+            });
+
+        });
+
+    }
+});
+
+##############################################################################3#######################################3#######################################3
+
+
+frappe.ui.form.on('Daily Payment', {
+    refresh(frm) {
+
+        frm.add_custom_button('Create Payments', () => {
+
+            let payments = [];
+
+            (frm.doc.payments || []).forEach(row => {
+
+                if (row.paid_amount && row.paid_amount > 0) {
+
+                    if (!row.customer || !row.sales_invoice) {
+                        frappe.msgprint("Missing customer or invoice in row");
+                        return;
+                    }
+
+                    payments.push({
+                        sales_invoice: row.sales_invoice,
+                        customer: row.customer,
+                        paid_amount: row.paid_amount,
+                        account_received_into: row.account_received_into || frm.doc.account_received_into,
+                        mode_of_payment: row.mode_of_payment || frm.doc.mode_of_payment,
+                        cheque: row.chequereference_no || null,
+                        cheque_date: row.chequereference_date || null
+                    });
+                }
+
+            });
+
+            if (!payments.length) {
+                frappe.msgprint("No valid payment rows");
+                return;
+            }
+
+            console.log("Payments Payload:", payments); // DEBUG
+
+            frappe.call({
+                method: 'create_payments',
+                args: {
+                    payments: JSON.stringify(payments)
+                },
+                callback: function(r) {
+
+                    if (r.message) {
+                        frappe.msgprint({
+                            title: "Success",
+                            message: "Created:<br>" + r.message.join("<br>"),
+                            indicator: "green"
+                        });
+                    }
+
+                }
+            });
+
+        });
+
+    }
+});
+
+
+
+frappe.ui.form.on('Daily Payments CT', {
+	paid_amount:function(frm,cdt,cdn){
+	    Balance(frm, cdt, cdn);
+	}
+})
+
+function Balance(frm, cdt, cdn) {
+    const row = locals[cdt][cdn];
+    if (row.paid_amount && row.grand_total) {
+        const value = row.grand_total - row.paid_amount;
+        frappe.model.set_value(cdt, cdn, 'balance', parseFloat(value.toFixed(3)));
+        frm.refresh_field('payments');
+    }
+}
+
+
+
+frappe.ui.form.on('Daily Payment', {
+	before_save: function(frm) {
+		TotalAmount(frm);
+	}
+});
+
+function TotalAmount(frm) {
+	const ct = frm.doc.payments || [];
+	let total_receivable_ = 0;
+	let total_paid_ = 0;
+
+	ct.forEach(row => {
+		if (row.balance) {
+			total_receivable_ += parseFloat(row.balance);
+		}
+		if (row.paid_amount) {
+			total_paid_ += parseFloat(row.paid_amount);
+		}
+	});
+
+	// Set correct totals
+	console.log(total_receivable_,total_paid_)
+	frm.set_value('total_receivable_', parseFloat(total_receivable_.toFixed(3)));
+	frm.set_value('total_paid_', parseFloat(total_paid_.toFixed(3)));
+}
+
+
+##############################################################################3#######################################3#######################################3
+
+This is Server Script For Create Payments
+
+payments = frappe.form_dict.get("payments")
+
+if not payments:
+    frappe.throw("No payments found")
+
+payments = json.loads(payments)
+
+created_entries = []
+
+company = frappe.db.get_single_value("Global Defaults", "default_company")
+company_currency = frappe.db.get_value("Company", company, "default_currency")
+
+for row in payments:
+
+    # 🔴 VALIDATIONS
+    if not row.get("customer"):
+        frappe.throw("Customer missing")
+
+    if not row.get("sales_invoice"):
+        frappe.throw("Sales Invoice missing")
+
+    if not row.get("account_received_into"):
+        frappe.throw("Receiving account missing")
+
+    if not row.get("mode_of_payment"):
+        frappe.throw("Mode of Payment missing")
+
+    amount = float(row.get("paid_amount") or 0)
+
+    if amount <= 0:
+        continue
+
+    # 🔥 GET CORRECT RECEIVABLE ACCOUNT
+    receivable_account = frappe.db.get_value("Company", company, "default_receivable_account")
+
+    # 🔥 CHECK OUTSTANDING
+    outstanding = frappe.db.get_value("Sales Invoice",row.get("sales_invoice"),"outstanding_amount")
+    
+
+    if amount > float(outstanding):
+        frappe.throw(f"Overpayment not allowed for {row.get('sales_invoice')}")
+
+    # 🔥 CREATE PAYMENT ENTRY
+    pe = frappe.get_doc({
+        "doctype": "Payment Entry",
+        "payment_type": "Receive",
+        "party_type": "Customer",
+        "party": row.get("customer"),
+        "company": company,
+        "posting_date": frappe.utils.today(),
+        "mode_of_payment": row.get("mode_of_payment"),
+
+        "paid_from": receivable_account,
+        "paid_to": row.get("account_received_into"),
+
+        "paid_amount": amount,
+        "received_amount": amount,
+
+        "paid_from_account_currency": company_currency,
+        "paid_to_account_currency": company_currency,
+        "source_exchange_rate": 1,
+        "target_exchange_rate": 1
+    })
+
+    pe.append("references", {
+        "reference_doctype": "Sales Invoice",
+        "reference_name": row.get("sales_invoice"),
+        "allocated_amount": amount
+    })
+
+    # Optional cheque fields
+    if row.get("cheque"):
+        pe.reference_no = row.get("cheque")
+
+    if row.get("cheque_date"):
+        pe.reference_date = row.get("cheque_date")
+
+    pe.insert(ignore_permissions=True)
+    pe.submit()
+
+    created_entries.append(pe.name)
+
+frappe.response["message"] = created_entries
+
+##############################################################################3#######################################3#######################################3
+
+This is Fetch Invoices Server script 
+
+sales_person = frappe.form_dict.get("sales_person")
+posting_date = frappe.form_dict.get("date")
+
+if not sales_person:
+    frappe.response["message"] = []
+else:
+    conditions = """
+        WHERE si.sales_person = %s 
+        AND si.docstatus = 1
+        AND si.outstanding_amount > 0
+        AND si.status IN ('Unpaid', 'Overdue', 'Partly Paid')
+    """
+    values = [sales_person]
+
+    if posting_date:
+        conditions += " AND si.posting_date = %s"
+        values.append(posting_date)
+
+    invoices = frappe.db.sql(f"""
+        SELECT 
+            si.name AS invoice,
+            si.customer,
+            si.posting_date,
+            si.grand_total,
+            si.outstanding_amount
+        FROM `tabSales Invoice` si
+        {conditions}
+        ORDER BY si.posting_date DESC
+    """, tuple(values), as_dict=True)
+
+    frappe.response["message"] = invoices
+
